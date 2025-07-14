@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.springframework.stereotype.Service;
 
+import com.miguel_barcelo.async_price_finder.dto.BatchPriceResponse;
 import com.miguel_barcelo.async_price_finder.dto.PriceResponse;
 import com.miguel_barcelo.async_price_finder.model.PriceResult;
 import com.miguel_barcelo.async_price_finder.service.mock.StoreAService;
@@ -82,5 +83,33 @@ public class PriceAggregatorService {
 		long duration = System.currentTimeMillis() - start;
 		
 		return new PriceResponse(product, results, bestPrice, bestStore, duration);
+	}
+	
+	public BatchPriceResponse processBatch(List<String> products) {
+		ExecutorService executor = Executors.newFixedThreadPool(products.size());
+		
+		List<Callable<PriceResponse>> tasks = products.stream()
+				.map(product -> (Callable<PriceResponse>)() -> findPrices(product))
+				.toList();
+		
+		List<PriceResponse> results = new ArrayList<>();
+		
+		try {
+			List<Future<PriceResponse>> futures = executor.invokeAll(tasks);
+			for (Future<PriceResponse> future: futures) {
+				try {
+					results.add(future.get());
+				} catch (Exception e) {
+					System.out.println("❌ Error en producto: " + e.getMessage());
+				}
+			}
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			System.out.println("❌ Batch interrumpido");
+		} finally {
+			executor.shutdown();
+		}
+		
+		return new BatchPriceResponse(results);
 	}
 }
